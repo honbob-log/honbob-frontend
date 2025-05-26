@@ -5,6 +5,7 @@ import Icon from "react-native-vector-icons/Feather"
 import { LinearGradient } from "expo-linear-gradient"
 import * as WebBrowser from 'expo-web-browser'
 import { Platform, Linking } from 'react-native'
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width, height } = Dimensions.get("window")
 
@@ -13,7 +14,8 @@ const LoginScreen = () => {
 
   const KAKAO_AUTH_URL = 'https://kauth.kakao.com/oauth/authorize'
   const CLIENT_ID = '572a9e8fc9c22450809e035d9b58f601' // 카카오 개발자 콘솔에서 확인
-  const REDIRECT_URI = 'http://172.30.126.196/auth/login/kakao' // Spring 서버의 redirect_uri와 동일하게
+  const REDIRECT_URI = 'http://10.0.2.2:8080/auth/login/kakao';
+  // Spring 서버의 redirect_uri와 동일하게
 
   const handleSocialLogin = (provider: string) => {
     console.log(`${provider} 로그인 시도`)
@@ -38,6 +40,9 @@ const LoginScreen = () => {
         const data = await response.json();
         alert(data.message);
         // 예: AsyncStorage.setItem('token', data.AccessToken)
+        await AsyncStorage.setItem("accessToken", data.accessToken);
+        navigation.navigate("Onboarding");
+
       } else {
         alert('카카오 로그인 실패: code 없음');
       }
