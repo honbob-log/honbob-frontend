@@ -1,4 +1,4 @@
-package com.honbapvlog;
+package com.kyoun.honbab;
 
 import com.facebook.react.ReactActivity;
 

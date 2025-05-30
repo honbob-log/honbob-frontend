@@ -40,11 +40,7 @@ const OnboardingScreen = () => {
   }
 
   const handleLocationPermission = (allow: boolean) => {
-    if (allow) {
-      navigation.navigate("Main")
-    } else {
-      navigation.navigate("Main")
-    }
+    navigation.navigate("Home")
   }
 
   const handleBackClick = () => {
