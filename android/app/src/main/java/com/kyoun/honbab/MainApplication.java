@@ -1,4 +1,4 @@
-package com.honbapvlog;
+package com.kyoun.honbab;
 
 import android.app.Application;
 import com.facebook.react.PackageList;
@@ -9,6 +9,9 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint;
 import com.facebook.react.defaults.DefaultReactNativeHost;
 import com.facebook.soloader.SoLoader;
 import java.util.List;
+import android.util.Log;
+import com.kakao.util.helper.Utility;
+
 
 public class MainApplication extends Application implements ReactApplication {
 
@@ -47,6 +50,14 @@ public class MainApplication extends Application implements ReactApplication {
     return mReactNativeHost;
   }
 
+  // @Override
+  // public void onCreate() {
+  //   super.onCreate();
+  //   SoLoader.init(this, /* native exopackage */ false);
+  //   if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
+  //     DefaultNewArchitectureEntryPoint.load();
+  //   }
+  // }
   @Override
   public void onCreate() {
     super.onCreate();
@@ -54,5 +65,8 @@ public class MainApplication extends Application implements ReactApplication {
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       DefaultNewArchitectureEntryPoint.load();
     }
+    // 키 해시 로그 추가 (여기!)
+    String keyHash = Utility.getKeyHash(this);
+    Log.i("KAKAO_KEY_HASH", "keyHash = " + keyHash);
   }
 }
