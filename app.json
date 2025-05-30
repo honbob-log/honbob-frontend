@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "scheme": "myapp",
+    "extra": {
+      "eas": {
+        "projectId": "7e7bd9f3-ba8d-4449-b978-bcec9b29e9a0"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.kyoung0161.honbab",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
