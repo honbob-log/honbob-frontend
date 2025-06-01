@@ -1,13 +1,25 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, TouchableOpacity, TextInput, Image, StyleSheet, Dimensions, ScrollView } from "react-native"
+import React, { useState, useEffect } from "react"
+import { View, Text, TouchableOpacity, TextInput, Image, StyleSheet, Dimensions, ScrollView, Alert, Platform } from "react-native"
 import { NavigationProp, useNavigation } from "@react-navigation/native"
 import type { RootStackParamList } from "../navigation/types"
 import Icon from "react-native-vector-icons/Feather"
 import TopBar from "../components/TopBar"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as ImagePicker from 'expo-image-picker'
 
 const { width } = Dimensions.get("window")
+
+const SERVER_PROFILE_ENDPOINT =
+  Platform.OS === "android"
+    ? "http://10.0.2.2:8080/api/auth/login/profile"
+    : "http://localhost:8080/api/auth/login/profile"
+
+const SERVER_IMAGE_UPLOAD_ENDPOINT =
+  Platform.OS === "android"
+    ? "http://10.0.2.2:8080/api/upload/profile"
+    : "http://localhost:8080/api/upload/profile"
 
 const OnboardingScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>()
@@ -16,6 +28,31 @@ const OnboardingScreen = () => {
   const [intro, setIntro] = useState("")
   const [profileImage, setProfileImage] = useState<string | null>(null)
   const [nicknameError, setNicknameError] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [isNewMember, setIsNewMember] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      const storedIsNewMember = await AsyncStorage.getItem("isNewMember")
+      const storedNickname = await AsyncStorage.getItem("nickname")
+      const storedProfileImageUrl = await AsyncStorage.getItem("profileImageUrl")
+      setIsNewMember(storedIsNewMember === "true")
+      if (storedNickname) setNickname(storedNickname)
+      if (storedProfileImageUrl) setProfileImage(storedProfileImageUrl)
+      setLoading(false)
+    }
+    loadUserInfo()
+  }, [])
+
+  useEffect(() => {
+    if (loading) return
+    if (isNewMember === false) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Home" }],
+      })
+    }
+  }, [isNewMember, loading, navigation])
 
   const handleNicknameCheck = () => {
     if (nickname.length < 2) {
@@ -26,17 +63,78 @@ const OnboardingScreen = () => {
       setNicknameError("닉네임은 30자 이하여야 합니다.")
       return
     }
-
     setNicknameError("")
     setStep(2)
   }
 
-  const handleProfileUpload = () => {
-    setProfileImage("https://via.placeholder.com/100x100")
+  // 프로필 이미지 선택 및 업로드
+  const handleProfileUpload = async () => {
+    // 1. 이미지 선택
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    })
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0]
+      setProfileImage(asset.uri)
+      // 2. 서버로 업로드
+      const formData = new FormData()
+      formData.append('file', {
+        uri: asset.uri,
+        name: 'profile.jpg',
+        type: 'image/jpeg',
+      } as any)
+      try {
+        const accessToken = await AsyncStorage.getItem("accessToken")
+        const uploadRes = await fetch(SERVER_IMAGE_UPLOAD_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "multipart/form-data",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: formData,
+        })
+        if (!uploadRes.ok) throw new Error("업로드 실패")
+        const data = await uploadRes.json()
+        setProfileImage(data.url) // 서버에서 반환한 이미지 URL로 상태 업데이트 (key는 서버 응답에 맞게 수정)
+        Alert.alert("업로드 성공", "프로필 이미지가 업로드되었습니다.")
+      } catch (e) {
+        Alert.alert("업로드 실패", "이미지 업로드 중 오류가 발생했습니다.")
+      }
+    }
   }
 
-  const handleSubmit = () => {
-    setStep(3)
+  const handleSubmit = async () => {
+    if (!nickname || nicknameError) {
+      Alert.alert("닉네임을 올바르게 입력하세요.")
+      return
+    }
+    try {
+      const accessToken = await AsyncStorage.getItem("accessToken")
+      const res = await fetch(SERVER_PROFILE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          nickname,
+          profileImageUrl: profileImage,
+          description: intro,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      Alert.alert("프로필 저장 완료", "유저 정보가 저장되었습니다.", [
+        {
+          text: "확인",
+          onPress: () => navigation.reset({ index: 0, routes: [{ name: "Home" }] }),
+        },
+      ])
+    } catch (e) {
+      Alert.alert("프로필 저장 실패", "서버와 통신 중 오류가 발생했습니다.")
+    }
   }
 
   const handleLocationPermission = (allow: boolean) => {
@@ -57,10 +155,21 @@ const OnboardingScreen = () => {
     </View>
   )
 
+  if (loading || isNewMember === null) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>로딩 중...</Text>
+      </View>
+    )
+  }
+
+  if (!isNewMember) {
+    return null
+  }
+
   return (
     <View style={styles.container}>
       <TopBar title="프로필 설정" showBackButton={true} rightElement={renderStepIndicator()} />
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {step === 1 && (
           <View style={styles.stepContainer}>
@@ -83,13 +192,11 @@ const OnboardingScreen = () => {
                 {nicknameError ? <Text style={styles.errorText}>{nicknameError}</Text> : null}
               </View>
             </View>
-
             <TouchableOpacity onPress={handleNicknameCheck} style={styles.nextButton}>
               <Text style={styles.nextButtonText}>다음</Text>
             </TouchableOpacity>
           </View>
         )}
-
         {step === 2 && (
           <View style={styles.stepContainer}>
             <View style={styles.card}>
@@ -109,7 +216,6 @@ const OnboardingScreen = () => {
                 </TouchableOpacity>
                 <Text style={styles.uploadText}>프로필 이미지를 업로드하세요</Text>
               </View>
-
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>소개 (선택, 최대 100자)</Text>
                 <TextInput
@@ -124,13 +230,11 @@ const OnboardingScreen = () => {
                 <Text style={styles.charCount}>{intro.length}/100</Text>
               </View>
             </View>
-
             <TouchableOpacity onPress={handleSubmit} style={styles.nextButton}>
               <Text style={styles.nextButtonText}>완료</Text>
             </TouchableOpacity>
           </View>
         )}
-
         {step === 3 && (
           <View style={styles.stepContainer}>
             <View style={styles.card}>
@@ -138,7 +242,6 @@ const OnboardingScreen = () => {
               <Text style={styles.locationDescription}>
                 주변 맛집 추천과 레시피 공유를 위해 위치 정보 접근 권한이 필요합니다.
               </Text>
-
               <View style={styles.locationButtons}>
                 <TouchableOpacity style={styles.allowButton} onPress={() => handleLocationPermission(true)}>
                   <Icon name="check" size={16} color="#fff" style={styles.buttonIcon} />
@@ -354,6 +457,11 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
   },
 })
 

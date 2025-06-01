@@ -1,16 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import React, { useEffect, useState } from "react"
 import { View, Text, ScrollView, TouchableOpacity, Image, TextInput, StyleSheet, Dimensions } from "react-native"
 import { NavigationProp, useNavigation } from "@react-navigation/native"
 import type { RootStackParamList } from "../navigation/types"
 import Icon from "react-native-vector-icons/Feather"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 const { width } = Dimensions.get("window")
 
 const HomeScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>()
   const [activeCategory, setActiveCategory] = useState("전체")
+  const [nickname, setNickname] = useState<string>("")
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
 
   const categories = [
     { id: "all", name: "전체", icon: "🍽️" },
@@ -64,6 +67,16 @@ const HomeScreen = () => {
     },
   ]
 
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      const storedNickname = await AsyncStorage.getItem("nickname")
+      const storedProfileImageUrl = await AsyncStorage.getItem("profileImageUrl")
+      setNickname(storedNickname || "사용자")
+      setProfileImageUrl(storedProfileImageUrl)
+    }
+    loadUserInfo()
+  }, [])
+
   const renderStars = (rating: number) => {
     return "★".repeat(Math.floor(rating)) + "☆".repeat(5 - Math.floor(rating))
   }
@@ -73,10 +86,17 @@ const HomeScreen = () => {
       {/* 헤더 */}
       <View style={styles.header}>
         <View style={styles.profileSection}>
-          <Image source={{ uri: "https://via.placeholder.com/40x40" }} style={styles.profileImage} />
+          <Image
+            source={
+              profileImageUrl
+                ? { uri: profileImageUrl }
+                : { uri: "https://via.placeholder.com/40x40" }
+            }
+            style={styles.profileImage}
+          />
           <View style={styles.profileInfo}>
             <Text style={styles.welcomeText}>안녕하세요</Text>
-            <Text style={styles.usernameText}>홍길동님 🔥</Text>
+            <Text style={styles.usernameText}>{nickname}님 🔥</Text>
           </View>
         </View>
         <TouchableOpacity style={styles.notificationButton}>
