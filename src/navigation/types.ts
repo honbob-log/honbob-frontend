@@ -10,4 +10,6 @@ export type RootStackParamList = {
   CreateRecipe: undefined;
   Main: undefined;
   Review: { recipeId: number };
+  Tabs: undefined;
+  Write: undefined;
 }; 

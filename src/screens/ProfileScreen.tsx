@@ -1,22 +1,38 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { View, Text, TouchableOpacity, ScrollView, Image, StyleSheet, Alert, Switch } from "react-native"
 import { NavigationProp, useNavigation } from "@react-navigation/native"
 import type { RootStackParamList } from "../navigation/types"
 import Icon from "react-native-vector-icons/Feather"
 import TopBar from "../components/TopBar"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 const ProfileScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>()
   const [pushNotifications, setPushNotifications] = useState(true)
   const [emailNotifications, setEmailNotifications] = useState(false)
+  const [nickname, setNickname] = useState<string>("")
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
+  const [bio, setBio] = useState<string>("")
+
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      const storedNickname = await AsyncStorage.getItem("nickname")
+      const storedProfileImageUrl = await AsyncStorage.getItem("profileImageUrl")
+      const storedBio = await AsyncStorage.getItem("description")
+      setNickname(storedNickname || "사용자")
+      setProfileImageUrl(storedProfileImageUrl)
+      setBio(storedBio || "")
+    }
+    loadUserInfo()
+  }, [])
 
   const userProfile = {
-    name: "홍길동",
-    email: "hong@example.com",
-    profileImage: "https://via.placeholder.com/100x100",
-    bio: "맛있는 요리를 사랑하는 홈쿡입니다 🍳",
+    name: nickname || "사용자",
+    email: "", // 이메일 정보가 있으면 여기에 반영
+    profileImage: profileImageUrl || "https://via.placeholder.com/100x100",
+    bio: bio || "맛있는 요리를 사랑하는 홈쿡입니다 🍳",
     joinDate: "2024.01.01",
     stats: {
       recipes: 12,
@@ -49,6 +65,43 @@ const ProfileScreen = () => {
     },
   ]
 
+  const handleLogout = async () => {
+    Alert.alert(
+      "로그아웃",
+      "정말 로그아웃하시겠습니까?",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "로그아웃",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // 모든 토큰과 사용자 정보 삭제
+              await AsyncStorage.multiRemove([
+                "accessToken",
+                "refreshToken",
+                "nickname",
+                "profileImageUrl",
+                "description",
+                "isNewMember"
+              ])
+
+              // 네비게이션 스택을 완전히 초기화하고 로그인 화면으로 이동
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "Login" }],
+                key: null
+              })
+            } catch (error) {
+              console.error("로그아웃 중 오류 발생:", error)
+              Alert.alert("오류", "로그아웃 중 문제가 발생했습니다.")
+            }
+          }
+        }
+      ]
+    )
+  }
+
   const menuItems = [
     { icon: "edit-3", title: "프로필 편집", onPress: () => console.log("프로필 편집") },
     { icon: "book-open", title: "내 레시피", onPress: () => console.log("내 레시피") },
@@ -58,14 +111,8 @@ const ProfileScreen = () => {
     { icon: "settings", title: "설정", onPress: () => console.log("설정") },
     { icon: "help-circle", title: "고객센터", onPress: () => console.log("고객센터") },
     { icon: "info", title: "앱 정보", onPress: () => console.log("앱 정보") },
+    { icon: "log-out", title: "로그아웃", onPress: handleLogout }
   ]
-
-  const handleLogout = () => {
-    Alert.alert("로그아웃", "정말 로그아웃하시겠습니까?", [
-      { text: "취소", style: "cancel" },
-      { text: "로그아웃", style: "destructive", onPress: () => navigation.navigate("Login") },
-    ])
-  }
 
   return (
     <View style={styles.container}>

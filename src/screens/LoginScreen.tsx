@@ -42,7 +42,14 @@ const handleDeepLink = async (
       ["profileImageUrl", profileImageUrl],
       ["isNewMember", isNewMember],
     ]);
-    navigation.navigate("Onboarding");
+
+    // isNewMember 값에 따라 온보딩 또는 홈 화면으로 이동
+    navigation.reset({
+      index: 0,
+      routes: [{
+        name: isNewMember === "true" ? "Onboarding" : "Tabs"
+      }]
+    });
   }
 };
 

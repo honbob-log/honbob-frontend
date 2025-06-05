@@ -49,7 +49,7 @@ const OnboardingScreen = () => {
     if (isNewMember === false) {
       navigation.reset({
         index: 0,
-        routes: [{ name: "Home" }],
+        routes: [{ name: "Tabs" }],
       })
     }
   }, [isNewMember, loading, navigation])
@@ -129,7 +129,12 @@ const OnboardingScreen = () => {
       Alert.alert("프로필 저장 완료", "유저 정보가 저장되었습니다.", [
         {
           text: "확인",
-          onPress: () => navigation.reset({ index: 0, routes: [{ name: "Home" }] }),
+          onPress: async () => {
+            await AsyncStorage.setItem("nickname", nickname)
+            await AsyncStorage.setItem("profileImageUrl", profileImage || "")
+            await AsyncStorage.setItem("isNewMember", "false")
+            navigation.reset({ index: 0, routes: [{ name: "Tabs" }] })
+          },
         },
       ])
     } catch (e) {
@@ -138,7 +143,7 @@ const OnboardingScreen = () => {
   }
 
   const handleLocationPermission = (allow: boolean) => {
-    navigation.navigate("Home")
+    navigation.navigate("Tabs")
   }
 
   const handleBackClick = () => {

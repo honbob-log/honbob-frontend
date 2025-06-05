@@ -1,19 +1,23 @@
 import React from "react"
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs"
+import { useNavigation } from "@react-navigation/native"
 import HomeScreen from "../screens/HomeScreen"
 import ProfileScreen from "../screens/ProfileScreen"
-import CreateRecipeScreen from "../screens/CreateRecipeScreen"
 import Icon from "react-native-vector-icons/Feather"
 import { View, TouchableOpacity, StyleSheet, Platform } from "react-native"
+import type { RootStackParamList } from "./types"
+import type { NavigationProp } from "@react-navigation/native"
 
 const Tab = createBottomTabNavigator()
 
-function FloatingWriteButton({ children, onPress }) {
+function FloatingWriteButton({ children }) {
+    const navigation = useNavigation<NavigationProp<RootStackParamList>>()
+
     return (
         <TouchableOpacity
             style={styles.fabContainer}
             activeOpacity={0.85}
-            onPress={onPress}
+            onPress={() => navigation.navigate("CreateRecipe")}
         >
             <View style={styles.fab}>{children}</View>
         </TouchableOpacity>
@@ -24,7 +28,7 @@ const TabNavigator = () => (
     <Tab.Navigator
         screenOptions={({ route }) => ({
             tabBarIcon: ({ color, size, focused }) => {
-                if (route.name === "CreateRecipe") {
+                if (route.name === "Write") {
                     return <Icon name="plus" size={32} color="#fff" />
                 }
                 let iconName = "home"
@@ -35,7 +39,7 @@ const TabNavigator = () => (
             tabBarActiveTintColor: "#ff8a3d",
             tabBarInactiveTintColor: "#999",
             headerShown: false,
-            tabBarShowLabel: route.name !== "CreateRecipe",
+            tabBarShowLabel: route.name !== "Write",
             tabBarStyle: {
                 height: Platform.OS === "ios" ? 80 : 64,
                 paddingBottom: Platform.OS === "ios" ? 24 : 10,
@@ -45,8 +49,8 @@ const TabNavigator = () => (
     >
         <Tab.Screen name="Home" component={HomeScreen} options={{ title: "홈" }} />
         <Tab.Screen
-            name="CreateRecipe"
-            component={CreateRecipeScreen}
+            name="Write"
+            component={HomeScreen} // 더미 컴포넌트로 HomeScreen 사용
             options={{
                 title: "",
                 tabBarButton: (props) => <FloatingWriteButton {...props} />,

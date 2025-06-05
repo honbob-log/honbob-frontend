@@ -1,11 +1,30 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, StyleSheet, Alert, Dimensions } from "react-native"
+import React, { useState } from "react"
+import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, StyleSheet, Alert, Dimensions, Modal } from "react-native"
 import { NavigationProp, useNavigation } from "@react-navigation/native"
 import type { RootStackParamList } from "../navigation/types"
 import Icon from "react-native-vector-icons/Feather"
 import TopBar from "../components/TopBar"
+import * as ImagePicker from "expo-image-picker"
+import axios from "axios"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+
+enum Difficulty {
+  VERY_EASY = "VERY_EASY",
+  EASY = "EASY",
+  NORMAL = "NORMAL",
+  HARD = "HARD",
+  VERY_HARD = "VERY_HARD"
+}
+
+const difficultyLabels: { [key in Difficulty]: string } = {
+  [Difficulty.VERY_EASY]: "매우 쉬움",
+  [Difficulty.EASY]: "쉬움",
+  [Difficulty.NORMAL]: "보통",
+  [Difficulty.HARD]: "어려움",
+  [Difficulty.VERY_HARD]: "매우 어려움"
+}
 
 const { width } = Dimensions.get("window")
 
@@ -13,24 +32,22 @@ const CreateRecipeScreen = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>()
   const [step, setStep] = useState(1)
 
-  // 기본 정보
+  // 1. 기본 정보
   const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-  const [cookingTime, setCookingTime] = useState("")
-  const [difficulty, setDifficulty] = useState("")
+  const [summary, setSummary] = useState("")
   const [mainImage, setMainImage] = useState<string | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
+  const [cookingTime, setCookingTime] = useState("")
+  const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.NORMAL)
+  const [showDifficultyPicker, setShowDifficultyPicker] = useState(false)
+  const [servings, setServings] = useState("")
 
-  // 재료
-  const [ingredients, setIngredients] = useState<{ name: string; amount: string; unit: string }[]>([
-    { name: "", amount: "", unit: "g" },
-  ])
+  // 2. 재료
+  const [ingredients, setIngredients] = useState([{ name: "", amount: "", unit: "" }])
 
-  // 조리 단계
-  const [cookingSteps, setCookingSteps] = useState<{ description: string; image: string | null }[]>([
-    { description: "", image: null },
-  ])
+  // 3. 조리법
+  const [steps, setSteps] = useState([{ description: "", image: null }])
 
   const handleAddTag = () => {
     if (tagInput && !tags.includes(tagInput)) {
@@ -43,50 +60,136 @@ const CreateRecipeScreen = () => {
     setTags(tags.filter((t) => t !== tag))
   }
 
-  const handleAddIngredient = () => {
-    setIngredients([...ingredients, { name: "", amount: "", unit: "g" }])
+  const handleAddIngredient = () => setIngredients([...ingredients, { name: "", amount: "", unit: "" }])
+
+  const handleRemoveIngredient = (idx: number) => {
+    if (ingredients.length > 1) setIngredients(ingredients.filter((_, i) => i !== idx))
   }
 
-  const handleRemoveIngredient = (index: number) => {
-    if (ingredients.length > 1) {
-      setIngredients(ingredients.filter((_, i) => i !== index))
+  const handleIngredientChange = (idx: number, field: string, value: string) => {
+    const newArr = [...ingredients]
+    newArr[idx][field] = value
+    setIngredients(newArr)
+  }
+
+  const handleAddStep = () => setSteps([...steps, { description: "", image: null }])
+
+  const handleRemoveStep = (idx: number) => {
+    if (steps.length > 1) setSteps(steps.filter((_, i) => i !== idx))
+  }
+
+  const handleStepChange = (idx: number, value: string) => {
+    const newArr = [...steps]
+    newArr[idx].description = value
+    setSteps(newArr)
+  }
+
+  const handleStepImage = (idx: number, uri: string) => {
+    const newArr = [...steps]
+    newArr[idx].image = uri
+    setSteps(newArr)
+  }
+
+  const validateInputs = () => {
+    if (!title.trim()) {
+      Alert.alert("오류", "레시피 제목을 입력해주세요.")
+      return false
+    }
+    if (!summary.trim()) {
+      Alert.alert("오류", "레시피 설명을 입력해주세요.")
+      return false
+    }
+    if (!mainImage) {
+      Alert.alert("오류", "대표 이미지를 추가해주세요.")
+      return false
+    }
+    if (!cookingTime) {
+      Alert.alert("오류", "조리 시간을 입력해주세요.")
+      return false
+    }
+    if (!servings) {
+      Alert.alert("오류", "인분을 입력해주세요.")
+      return false
+    }
+    if (ingredients.some(ing => !ing.name || !ing.amount)) {
+      Alert.alert("오류", "모든 재료의 이름과 수량을 입력해주세요.")
+      return false
+    }
+    if (steps.some(step => !step.description)) {
+      Alert.alert("오류", "모든 조리 단계의 설명을 입력해주세요.")
+      return false
+    }
+    return true
+  }
+
+  const handleSubmit = async () => {
+    try {
+      if (!validateInputs()) {
+        return
+      }
+
+      const recipeData = {
+        title,
+        description: summary,
+        imageUrl: mainImage,
+        tag: tags.join(","),
+        cookTime: parseInt(cookingTime),
+        difficulty,
+        amount: parseInt(servings),
+        ingredient: ingredients.map(ing => ({
+          name: ing.name,
+          amount: parseInt(ing.amount) || 0,
+          ingredientId: null
+        })).filter(ing => ing.name && ing.amount > 0),
+        step: steps.map((step, index) => ({
+          stepOrder: index + 1,
+          description: step.description,
+          imageUrl: step.image
+        })).filter(step => step.description)
+      }
+
+      console.log("전송할 데이터:", JSON.stringify(recipeData, null, 2))
+
+      const token = await AsyncStorage.getItem("token")
+      if (!token) {
+        Alert.alert("오류", "로그인이 필요합니다.")
+        return
+      }
+
+      const response = await axios.post("http://localhost:8080/api/recipe/register", recipeData, {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        }
+      })
+
+      console.log("응답 데이터:", response.data)
+
+      Alert.alert("성공", "레시피가 등록되었습니다!", [
+        { text: "확인", onPress: () => navigation.navigate("Main") }
+      ])
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const errorMessage = error.response?.data?.message || "레시피 등록에 실패했습니다."
+        console.error("API 에러 응답:", error.response?.data)
+        Alert.alert("오류", errorMessage)
+      } else {
+        Alert.alert("오류", "레시피 등록에 실패했습니다. 다시 시도해주세요.")
+      }
+      console.error("레시피 등록 오류:", error)
     }
   }
 
-  const handleAddStep = () => {
-    setCookingSteps([...cookingSteps, { description: "", image: null }])
-  }
-
-  const handleRemoveStep = (index: number) => {
-    if (cookingSteps.length > 1) {
-      setCookingSteps(cookingSteps.filter((_, i) => i !== index))
+  const pickImage = async (onSelect: (uri: string) => void) => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+    })
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      onSelect(result.assets[0].uri)
     }
-  }
-
-  const handleUploadImage = (type: "main" | "step", index?: number) => {
-    if (type === "main") {
-      setMainImage("https://via.placeholder.com/300x200")
-    } else if (type === "step" && index !== undefined) {
-      const newSteps = [...cookingSteps]
-      newSteps[index].image = "https://via.placeholder.com/300x200"
-      setCookingSteps(newSteps)
-    }
-  }
-
-  const handleSubmit = () => {
-    Alert.alert("성공", "레시피가 등록되었습니다!", [{ text: "확인", onPress: () => navigation.navigate("Main") }])
-  }
-
-  const handleIngredientChange = (index: number, field: string, value: string) => {
-    const newIngredients = [...ingredients]
-    newIngredients[index] = { ...newIngredients[index], [field]: value }
-    setIngredients(newIngredients)
-  }
-
-  const handleStepChange = (index: number, value: string) => {
-    const newSteps = [...cookingSteps]
-    newSteps[index].description = value
-    setCookingSteps(newSteps)
   }
 
   const renderStepIndicator = () => (
@@ -95,244 +198,190 @@ const CreateRecipeScreen = () => {
     </View>
   )
 
+  const renderDifficultyPicker = () => (
+    <Modal
+      visible={showDifficultyPicker}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowDifficultyPicker(false)}
+    >
+      <TouchableOpacity
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowDifficultyPicker(false)}
+      >
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>난이도 선택</Text>
+          {Object.entries(difficultyLabels).map(([key, label]) => (
+            <TouchableOpacity
+              key={key}
+              style={[
+                styles.difficultyOption,
+                difficulty === key && styles.selectedDifficulty
+              ]}
+              onPress={() => {
+                setDifficulty(key as Difficulty)
+                setShowDifficultyPicker(false)
+              }}
+            >
+              <Text style={[
+                styles.difficultyOptionText,
+                difficulty === key && styles.selectedDifficultyText
+              ]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  )
+
   return (
     <View style={styles.container}>
       <TopBar title="레시피 등록" showBackButton={true} rightElement={renderStepIndicator()} />
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {step === 1 && (
-          <View style={styles.stepContainer}>
-            <View style={styles.card}>
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>레시피 제목</Text>
-                <TextInput
-                  value={title}
-                  onChangeText={setTitle}
-                  placeholder="레시피 이름을 입력하세요"
-                  style={styles.formInput}
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>레시피 설명</Text>
-                <TextInput
-                  value={description}
-                  onChangeText={setDescription}
-                  placeholder="레시피에 대한 간단한 설명을 입력하세요"
-                  style={styles.formTextarea}
-                  multiline
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <View style={styles.formRow}>
-                <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
-                  <Text style={styles.formLabel}>조리 시간</Text>
-                  <TouchableOpacity style={styles.selectButton}>
-                    <Text style={styles.selectText}>{cookingTime || "선택"}</Text>
-                    <Icon name="chevron-down" size={16} color="#999" />
-                  </TouchableOpacity>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>기본 정보</Text>
+            <TextInput style={styles.input} placeholder="레시피 제목" value={title} onChangeText={setTitle} />
+            <TextInput style={styles.input} placeholder="한줄 설명" value={summary} onChangeText={setSummary} />
+            <TouchableOpacity style={styles.imagePicker} onPress={() => pickImage(setMainImage)}>
+              {mainImage ? (
+                <Image source={{ uri: mainImage }} style={styles.image} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Icon name="camera" size={36} color="#ff8a3d" />
+                  <Text style={styles.imageText}>대표 이미지 추가</Text>
                 </View>
-
-                <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
-                  <Text style={styles.formLabel}>난이도</Text>
-                  <TouchableOpacity style={styles.selectButton}>
-                    <Text style={styles.selectText}>{difficulty || "선택"}</Text>
-                    <Icon name="chevron-down" size={16} color="#999" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>대표 이미지</Text>
-                {mainImage ? (
-                  <View style={styles.imagePreview}>
-                    <Image source={{ uri: mainImage }} style={styles.previewImage} />
-                    <TouchableOpacity style={styles.removeImageButton} onPress={() => setMainImage(null)}>
-                      <Icon name="x" size={16} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity style={styles.uploadButton} onPress={() => handleUploadImage("main")}>
-                    <Icon name="camera" size={24} color="#999" />
-                    <Text style={styles.uploadText}>이미지 업로드</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>태그</Text>
-                <View style={styles.tagsContainer}>
-                  {tags.map((tag) => (
-                    <View key={tag} style={styles.tag}>
-                      <Text style={styles.tagText}>#{tag}</Text>
-                      <TouchableOpacity onPress={() => handleRemoveTag(tag)}>
-                        <Icon name="x" size={12} color="#ff8a3d" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-                <View style={styles.tagInputContainer}>
-                  <TextInput
-                    value={tagInput}
-                    onChangeText={setTagInput}
-                    placeholder="태그 입력 (예: 한식, 매콤)"
-                    style={styles.tagInput}
-                    placeholderTextColor="#999"
-                    onSubmitEditing={handleAddTag}
-                  />
-                  <TouchableOpacity onPress={handleAddTag} style={styles.addTagButton}>
-                    <Text style={styles.addTagText}>추가</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-
-            <TouchableOpacity onPress={() => setStep(2)} style={styles.nextButton}>
-              <Text style={styles.nextButtonText}>다음</Text>
-              <Icon name="arrow-right" size={16} color="#fff" />
+              )}
             </TouchableOpacity>
+            <View style={styles.tagsContainer}>
+              {tags.map((tag) => (
+                <View key={tag} style={styles.tag}>
+                  <Text style={styles.tagText}>#{tag}</Text>
+                  <TouchableOpacity onPress={() => handleRemoveTag(tag)}>
+                    <Icon name="x" size={12} color="#ff8a3d" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+            <View style={styles.tagInputRow}>
+              <TextInput
+                value={tagInput}
+                onChangeText={setTagInput}
+                placeholder="태그 입력 (예: 한식, 매콤)"
+                style={styles.tagInput}
+                placeholderTextColor="#999"
+                onSubmitEditing={handleAddTag}
+              />
+              <TouchableOpacity onPress={handleAddTag} style={styles.addTagButton}>
+                <Text style={styles.addTagText}>추가</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, { flex: 1, marginRight: 8 }]}
+                placeholder="조리 시간 (예: 30분)"
+                value={cookingTime}
+                onChangeText={setCookingTime}
+                keyboardType="numeric"
+              />
+              <TouchableOpacity
+                style={[styles.input, { flex: 1, marginRight: 8, justifyContent: 'center' }]}
+                onPress={() => setShowDifficultyPicker(true)}
+              >
+                <Text style={{ color: difficulty ? '#333' : '#999' }}>
+                  {difficultyLabels[difficulty] || "난이도 선택"}
+                </Text>
+              </TouchableOpacity>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="인분 (예: 2인분)"
+                value={servings}
+                onChangeText={setServings}
+                keyboardType="numeric"
+              />
+            </View>
+            {renderDifficultyPicker()}
           </View>
         )}
 
         {step === 2 && (
-          <View style={styles.stepContainer}>
-            <View style={styles.card}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>재료 목록</Text>
-                <TouchableOpacity style={styles.addButton} onPress={handleAddIngredient}>
-                  <Icon name="plus" size={16} color="#ff8a3d" />
-                  <Text style={styles.addButtonText}>재료 추가</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>재료</Text>
+            {ingredients.map((item, idx) => (
+              <View key={idx} style={styles.ingredientRow}>
+                <TextInput style={[styles.input, { flex: 2 }]} placeholder="재료명" value={item.name} onChangeText={v => handleIngredientChange(idx, "name", v)} />
+                <TextInput style={[styles.input, { flex: 1, marginHorizontal: 8 }]} placeholder="수량" value={item.amount} onChangeText={v => handleIngredientChange(idx, "amount", v)} />
+                <TextInput style={[styles.input, { flex: 1 }]} placeholder="단위 (예: g, 개)" value={item.unit} onChangeText={v => handleIngredientChange(idx, "unit", v)} />
+                <TouchableOpacity onPress={() => handleRemoveIngredient(idx)} disabled={ingredients.length === 1} style={styles.removeButton}>
+                  <Icon name="x" size={16} color={ingredients.length === 1 ? "#ccc" : "#ff4444"} />
                 </TouchableOpacity>
               </View>
-
-              <View style={styles.ingredientsList}>
-                {ingredients.map((ingredient, index) => (
-                  <View key={index} style={styles.ingredientRow}>
-                    <TextInput
-                      value={ingredient.name}
-                      onChangeText={(value) => handleIngredientChange(index, "name", value)}
-                      placeholder="재료명"
-                      style={[styles.ingredientInput, { flex: 2 }]}
-                      placeholderTextColor="#999"
-                    />
-                    <TextInput
-                      value={ingredient.amount}
-                      onChangeText={(value) => handleIngredientChange(index, "amount", value)}
-                      placeholder="수량"
-                      style={[styles.ingredientInput, { flex: 1, marginHorizontal: 8 }]}
-                      placeholderTextColor="#999"
-                    />
-                    <TouchableOpacity style={styles.unitButton}>
-                      <Text style={styles.unitText}>{ingredient.unit}</Text>
-                      <Icon name="chevron-down" size={12} color="#999" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.removeButton}
-                      onPress={() => handleRemoveIngredient(index)}
-                      disabled={ingredients.length === 1}
-                    >
-                      <Icon name="x" size={16} color={ingredients.length === 1 ? "#ccc" : "#ff4444"} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.navigationButtons}>
-              <TouchableOpacity style={styles.prevButton} onPress={() => setStep(1)}>
-                <Icon name="arrow-left" size={16} color="#666" />
-                <Text style={styles.prevButtonText}>이전</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.nextButton} onPress={() => setStep(3)}>
-                <Text style={styles.nextButtonText}>다음</Text>
-                <Icon name="arrow-right" size={16} color="#fff" />
-              </TouchableOpacity>
-            </View>
+            ))}
+            <TouchableOpacity onPress={handleAddIngredient} style={styles.addButton}>
+              <Icon name="plus" size={16} color="#ff8a3d" />
+              <Text style={styles.addButtonText}>재료 추가</Text>
+            </TouchableOpacity>
           </View>
         )}
 
         {step === 3 && (
-          <View style={styles.stepContainer}>
-            <View style={styles.card}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>조리 단계</Text>
-                <TouchableOpacity style={styles.addButton} onPress={handleAddStep}>
-                  <Icon name="plus" size={16} color="#ff8a3d" />
-                  <Text style={styles.addButtonText}>단계 추가</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>조리법</Text>
+            {steps.map((stepItem, idx) => (
+              <View key={idx} style={styles.stepRow}>
+                <View style={styles.stepHeader}>
+                  <View style={styles.stepNumber}><Text style={styles.stepNumberText}>{idx + 1}</Text></View>
+                  <TouchableOpacity onPress={() => handleRemoveStep(idx)} disabled={steps.length === 1} style={styles.removeButton}>
+                    <Icon name="x" size={16} color={steps.length === 1 ? "#ccc" : "#ff4444"} />
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  style={styles.input}
+                  placeholder={`단계 ${idx + 1} 설명`}
+                  value={stepItem.description}
+                  onChangeText={v => handleStepChange(idx, v)}
+                  multiline
+                />
+                <TouchableOpacity style={styles.imagePicker} onPress={() => pickImage(uri => handleStepImage(idx, uri))}>
+                  {stepItem.image ? (
+                    <Image source={{ uri: stepItem.image }} style={styles.stepImage} />
+                  ) : (
+                    <View style={styles.imagePlaceholder}>
+                      <Icon name="camera" size={28} color="#ff8a3d" />
+                      <Text style={styles.imageText}>단계 이미지 추가</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               </View>
-
-              <View style={styles.stepsList}>
-                {cookingSteps.map((step, index) => (
-                  <View key={index} style={styles.stepItem}>
-                    <View style={styles.stepHeader}>
-                      <View style={styles.stepNumber}>
-                        <Text style={styles.stepNumberText}>{index + 1}</Text>
-                      </View>
-                      <Text style={styles.stepTitle}>단계 {index + 1}</Text>
-                      <TouchableOpacity
-                        style={styles.removeStepButton}
-                        onPress={() => handleRemoveStep(index)}
-                        disabled={cookingSteps.length === 1}
-                      >
-                        <Icon name="x" size={16} color={cookingSteps.length === 1 ? "#ccc" : "#ff4444"} />
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.stepContent}>
-                      <TextInput
-                        value={step.description}
-                        onChangeText={(value) => handleStepChange(index, value)}
-                        placeholder="조리 방법을 설명해주세요"
-                        style={styles.stepTextarea}
-                        multiline
-                        placeholderTextColor="#999"
-                      />
-
-                      {step.image ? (
-                        <View style={styles.stepImagePreview}>
-                          <Image source={{ uri: step.image }} style={styles.stepPreviewImage} />
-                          <TouchableOpacity
-                            style={styles.removeStepImageButton}
-                            onPress={() => {
-                              const newSteps = [...cookingSteps]
-                              newSteps[index].image = null
-                              setCookingSteps(newSteps)
-                            }}
-                          >
-                            <Icon name="x" size={16} color="#fff" />
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <TouchableOpacity
-                          style={styles.stepImageUploadButton}
-                          onPress={() => handleUploadImage("step", index)}
-                        >
-                          <Icon name="image" size={20} color="#999" />
-                          <Text style={styles.stepImageUploadText}>이미지 추가 (선택)</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.navigationButtons}>
-              <TouchableOpacity style={styles.prevButton} onPress={() => setStep(2)}>
-                <Icon name="arrow-left" size={16} color="#666" />
-                <Text style={styles.prevButtonText}>이전</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.completeButton} onPress={handleSubmit}>
-                <Icon name="check" size={16} color="#fff" />
-                <Text style={styles.completeButtonText}>완료</Text>
-              </TouchableOpacity>
-            </View>
+            ))}
+            <TouchableOpacity onPress={handleAddStep} style={styles.addButton}>
+              <Icon name="plus" size={16} color="#ff8a3d" />
+              <Text style={styles.addButtonText}>단계 추가</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
+
+      <View style={styles.navigation}>
+        {step > 1 && (
+          <TouchableOpacity onPress={() => setStep(step - 1)} style={styles.navButton}>
+            <Text style={styles.navButtonText}>이전</Text>
+          </TouchableOpacity>
+        )}
+        {step < 3 ? (
+          <TouchableOpacity onPress={() => setStep(step + 1)} style={styles.navButton}>
+            <Text style={styles.navButtonText}>다음</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
+            <Text style={styles.submitText}>등록하기</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   )
 }
@@ -346,6 +395,44 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
+  section: { padding: 24 },
+  sectionTitle: { fontSize: 20, fontWeight: "bold", color: "#333", marginBottom: 20 },
+  input: {
+    backgroundColor: "#f5f5f5", borderRadius: 12, padding: 14, fontSize: 16,
+    marginBottom: 12, color: "#333"
+  },
+  imagePicker: { alignItems: "center", marginBottom: 16 },
+  image: { width: 200, height: 200, borderRadius: 16 },
+  imagePlaceholder: {
+    width: 200, height: 200, borderRadius: 16, backgroundColor: "#fff5ee",
+    justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "#ff8a3d"
+  },
+  imageText: { color: "#ff8a3d", marginTop: 8 },
+  tagsContainer: { flexDirection: "row", flexWrap: "wrap", marginBottom: 8, gap: 8 },
+  tag: {
+    flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255, 138, 61, 0.1)", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  tagText: { fontSize: 12, color: "#ff8a3d", marginRight: 4 },
+  tagInputRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  tagInput: { flex: 1, backgroundColor: "#f5f5f5", borderRadius: 12, padding: 12, fontSize: 14, color: "#333", marginRight: 8 },
+  addTagButton: { backgroundColor: "#ff8a3d", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  addTagText: { color: "#fff", fontSize: 14, fontWeight: "500" },
+  row: { flexDirection: "row", marginBottom: 12 },
+  ingredientRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  removeButton: { padding: 4 },
+  addButton: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255, 138, 61, 0.1)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginTop: 8 },
+  addButtonText: { color: "#ff8a3d", fontSize: 12, fontWeight: "500", marginLeft: 4 },
+  stepRow: { marginBottom: 20, borderWidth: 1, borderColor: "#f0f0f0", borderRadius: 12, padding: 16 },
+  stepHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  stepNumber: { width: 24, height: 24, borderRadius: 12, backgroundColor: "#ff8a3d", justifyContent: "center", alignItems: "center", marginRight: 8 },
+  stepNumberText: { color: "#fff", fontSize: 12, fontWeight: "bold" },
+  stepImage: { width: 120, height: 80, borderRadius: 8, marginTop: 8 },
+  nutritionRow: { flexDirection: "row", marginBottom: 12 },
+  navigation: { flexDirection: "row", justifyContent: "space-between", padding: 24, gap: 12 },
+  navButton: { flex: 1, backgroundColor: "#f5f5f5", borderRadius: 12, paddingVertical: 16, alignItems: "center", marginHorizontal: 4 },
+  navButtonText: { color: "#666", fontSize: 16, fontWeight: "600" },
+  submitButton: { flex: 1, backgroundColor: "#ff8a3d", borderRadius: 12, paddingVertical: 16, alignItems: "center", marginHorizontal: 4 },
+  submitText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
   stepIndicator: {
     backgroundColor: "#f0f0f0",
     paddingHorizontal: 12,
@@ -357,344 +444,43 @@ const styles = StyleSheet.create({
     color: "#666",
     fontWeight: "500",
   },
-  stepContainer: {
+  modalOverlay: {
     flex: 1,
-    paddingVertical: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  card: {
-    backgroundColor: "#fff",
+  modalContent: {
+    backgroundColor: 'white',
     borderRadius: 16,
     padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    width: '80%',
+    maxHeight: '80%',
   },
-  formGroup: {
-    marginBottom: 20,
-  },
-  formLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 8,
-  },
-  formInput: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: "#333",
-  },
-  formTextarea: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: "#333",
-    height: 80,
-    textAlignVertical: "top",
-  },
-  formRow: {
-    flexDirection: "row",
-  },
-  selectButton: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  selectText: {
-    fontSize: 14,
-    color: "#333",
-  },
-  uploadButton: {
-    borderWidth: 2,
-    borderColor: "#e0e0e0",
-    borderStyle: "dashed",
-    borderRadius: 8,
-    paddingVertical: 40,
-    alignItems: "center",
-    backgroundColor: "#f9f9f9",
-  },
-  uploadText: {
-    fontSize: 14,
-    color: "#999",
-    marginTop: 8,
-  },
-  imagePreview: {
-    position: "relative",
-    alignSelf: "flex-start",
-  },
-  previewImage: {
-    width: 120,
-    height: 80,
-    borderRadius: 8,
-  },
-  removeImageButton: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-    backgroundColor: "#ff4444",
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  tagsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 8,
-    gap: 8,
-  },
-  tag: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 138, 61, 0.1)",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  tagText: {
-    fontSize: 12,
-    color: "#ff8a3d",
-    marginRight: 4,
-  },
-  tagInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  tagInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: "#333",
-    marginRight: 8,
-  },
-  addTagButton: {
-    backgroundColor: "#ff8a3d",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  addTagText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  sectionTitle: {
+  modalTitle: {
     fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+    color: '#333',
   },
-  addButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 138, 61, 0.1)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    color: "#ff8a3d",
-    fontSize: 12,
-    fontWeight: "500",
-    marginLeft: 4,
-  },
-  ingredientsList: {
-    gap: 12,
-  },
-  ingredientRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  ingredientInput: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: "#333",
-  },
-  unitButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    marginRight: 8,
-    minWidth: 60,
-  },
-  unitText: {
-    fontSize: 12,
-    color: "#333",
-    marginRight: 4,
-  },
-  removeButton: {
-    padding: 4,
-  },
-  stepsList: {
-    gap: 20,
-  },
-  stepItem: {
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-    borderRadius: 12,
-    padding: 16,
-  },
-  stepHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  stepNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#ff8a3d",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-  },
-  stepNumberText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  stepTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  removeStepButton: {
-    padding: 4,
-  },
-  stepContent: {
-    gap: 12,
-  },
-  stepTextarea: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
+  difficultyOption: {
     paddingVertical: 12,
-    fontSize: 14,
-    color: "#333",
-    height: 80,
-    textAlignVertical: "top",
-  },
-  stepImagePreview: {
-    position: "relative",
-    alignSelf: "flex-start",
-  },
-  stepPreviewImage: {
-    width: 120,
-    height: 80,
+    paddingHorizontal: 16,
     borderRadius: 8,
+    marginBottom: 8,
   },
-  removeStepImageButton: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-    backgroundColor: "#ff4444",
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: "center",
-    alignItems: "center",
+  selectedDifficulty: {
+    backgroundColor: '#ff8a3d',
   },
-  stepImageUploadButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#e0e0e0",
-    borderStyle: "dashed",
-    borderRadius: 8,
-    paddingVertical: 20,
-    backgroundColor: "#f9f9f9",
-  },
-  stepImageUploadText: {
-    fontSize: 14,
-    color: "#999",
-    marginLeft: 8,
-  },
-  navigationButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  prevButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f5f5f5",
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  prevButtonText: {
-    color: "#666",
+  difficultyOptionText: {
     fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 4,
+    color: '#333',
+    textAlign: 'center',
   },
-  nextButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#ff8a3d",
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  nextButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginRight: 4,
-  },
-  completeButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#4CAF50",
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  completeButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 4,
+  selectedDifficultyText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 })
 
